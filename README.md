@@ -1,10 +1,19 @@
+### Interpreter Lua
+
+## Année : L3
+
+## Langages : OCaml & Rust
+
+Dans ce projet, on propose d’implémenter un interpréteur pour un sous-ensemble du langage Lua.
+L’objectif final est que notre interpréteur supporte les coroutines, une fonctionnalité avancée utile notamment pour implémenter des mécanismes d’itération ou de concurrence coopérative.
+
 ## Dependencies
 
 In order to build the project, we need a few opam packages.
 Using `opam`, run:
 
 ```
-opam install dune menhir ppx_deriving ocaml-lsp-server ocamlformat-rpc
+    opam install dune menhir ppx_deriving ocaml-lsp-server ocamlformat-rpc
 ```
 
 On the Rust side, a recent installation of cargo and rustc is needed.
