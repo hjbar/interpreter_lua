@@ -11,10 +11,10 @@ pub mod value;
 impl Block {
     // Interprétation d'un bloc
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) -> Value<'ast> {
-        // TODO: Utiliser les variables locales
+        let it = std::iter::repeat(Value::Nil).take(self.locals.len());
+        env.locals.extend(&self.locals, it);
 
         self.body.interp(env);
-
         return self.ret.interp(env);
     }
 }
@@ -26,9 +26,14 @@ impl Stat_ {
             Stat_::Nop => (), // TODO: Bizarre
             Stat_::Seq(s1, s2) => { s1.interp(env); s2.interp(env) }
             Stat_::StatFunctionCall(f) => { f.interp(env); }
-            Stat_::Assign(var, exp) => todo!(),
-            Stat_::WhileDoEnd(exp, stat) => todo!(),
-            Stat_::If(exp, s1, s2) => todo!(),
+            Stat_::Assign(var, exp) => {
+                match var {
+                    Var::Name(name) => { let val = exp.interp(env); env.set(name, val) }
+                    Var::IndexTable(e1, e2) => todo!(),
+                }
+            }
+            Stat_::WhileDoEnd(exp, stat) => while exp.interp(env).as_bool() { stat.interp(env) },
+            Stat_::If(exp, s1, s2) => if exp.interp(env).as_bool() { s1.interp(env) } else { s2.interp(env) },
         }
     }
 }
@@ -47,7 +52,7 @@ impl FunctionCall {
 
                 Value::Function(Function::Print)
             }
-            Function::Closure(_, _, _) => unimplemented!(),
+            Function::Closure(params, local_env, block) => todo!(),
         }
     }
 }
@@ -69,7 +74,39 @@ impl Exp_ {
                 }
             }
             Exp_::ExpFunctionCall(f) => f.interp(env),
-            _ => unimplemented!(),
+            Exp_::FunctionDef(fun_body) => {
+                todo!();
+                /*
+                let it = std::iter::repeat(Value::Nil).take(fun_body.0.len());
+                let local_env = env.locals.extend(&fun_body.0, it);
+                let f = Function::Closure(&fun_body.0, local_env, &fun_body.1);
+                Value::Function(f)
+                */
+            }
+            Exp_::BinOp(binop, e1, e2) => {
+                match binop {
+                    BinOp::Addition => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::add(n1, n2) }
+                    BinOp::Subtraction => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::sub(n1, n2) }
+                    BinOp::Multiplication => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::mul(n1, n2) }
+                    /* relational operators */
+                    BinOp::Equality => { let b1 = e1.interp(env); let b2 = e2.interp(env); Value::Bool(b1 == b2) },
+                    BinOp::Inequality => { let b1 = e1.interp(env); let b2 = e2.interp(env); Value::Bool(b1 != b2) },
+                    BinOp::Less => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(Value::lt(n1, n2)) }
+                    BinOp::Greater => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(!Value::le(n1, n2)) }
+                    BinOp::LessEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(Value::le(n1, n2)) }
+                    BinOp::GreaterEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(!Value::lt(n1, n2)) }
+                    /* logical operators */
+                    BinOp::LogicalAnd => { let b1 = e1.interp(env).as_bool(); let b2 = e2.interp(env).as_bool(); Value::Bool(b1 && b2) },
+                    BinOp::LogicalOr => { let b1 = e1.interp(env).as_bool(); let b2 = e2.interp(env).as_bool(); Value::Bool(b1 || b2) },
+                }
+            }
+            Exp_::UnOp(unop, exp) => {
+                match unop {
+                    UnOp::Not => Value::Bool(!exp.interp(env).as_bool()),
+                    UnOp::UnaryMinus => exp.interp(env).neg(),
+                }
+            }
+            Exp_::Table(vec) => todo!(),
         }
     }
 }
