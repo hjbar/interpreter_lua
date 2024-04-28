@@ -51,8 +51,18 @@ impl<'ast> LEnv<'ast> {
     // fonction, mais aussi compléter les annotations de lifetimes : le choix
     // par défaut fait par le compilateur Rust ne permet pas d'implémenter
     // correctement l'interpréteur.
-    fn lookup(&self, name: &Name) -> Option<&RefCell<Value>> {
-        unimplemented!()
+    fn lookup(&self, name: &Name) -> Option<&RefCell<Value<'ast>>> {
+        match self {
+            LEnv::Nil => None,
+            LEnv::Cons(scope, lenv) => {
+                let res = scope.get(name);
+                if res.is_none() {
+                    lenv.lookup(name)
+                } else {
+                    Some(res.unwrap())
+                }
+            }
+        }
     }
 
     // Crée un nouvel environnement local, en ajoutant un ensemble de paires
@@ -64,26 +74,48 @@ impl<'ast> LEnv<'ast> {
     // fonction, mais aussi compléter les annotations de lifetimes : le choix
     // par défaut fait par le compilateur Rust ne permet pas d'implémenter
     // correctement l'interpréteur.
-    pub fn extend<V>(self: &Rc<Self>, names: &[Name], values: V) -> Rc<Self>
+    pub fn extend<V>(self: &Rc<Self>, names: &'ast[Name], values: V) -> Rc<Self>
     where
         V: Iterator<Item = Value<'ast>>,
     {
-        unimplemented!()
+        let mut scope = HashMap::new();
+
+        for (i, v) in values.enumerate() {
+            scope.insert(&names[i], v.into());
+        }
+
+        let cons = LEnv::Cons(scope, self.clone());
+        Rc::new(cons)
     }
 }
 
 impl<'ast, 'genv> Env<'ast, 'genv> {
     // Recherche d'une valeur dans un environnement. Il faut d'abord chercher
     // dans l'environnement local, puis dans l'environnement global.
-    pub fn lookup(&self, name: &Name) -> Value {
-        unimplemented!()
+
+    pub fn lookup(&self, name: &Name) -> Value<'ast> {
+        match self.locals.lookup(name) {
+            None => {
+                let res = self.globals.0.get(name);
+
+                if res.is_none() {
+                    Value::Nil
+                } else {
+                    (*res.unwrap()).clone()
+                }
+            }
+            Some(res) => (*res.borrow()).clone(),
+        }
     }
 
     // Modification d'une variable dans un environnement. Si la variable est
     // présente dans un environnement local, alors il faut modifier la portée
     // correspondante. Sinon, il faut modifier l'environnement global, soit en
     // modifiant une entrée déjà existante, soit en en créant une nouvelle.
-    pub fn set(&mut self, name: &'ast Name, v: Value) {
-        unimplemented!()
+    pub fn set(&mut self, name: &'ast Name, v: Value<'ast>) {
+        match self.locals.lookup(name) {
+            None => { self.globals.0.insert(name, v); }
+            Some(res) => { res.replace(v); }
+        }
     }
 }
