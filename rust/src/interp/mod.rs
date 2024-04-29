@@ -52,7 +52,13 @@ impl FunctionCall {
 
                 Value::Function(Function::Print)
             }
-            Function::Closure(params, local_env, block) => todo!(),
+            Function::Closure(params, local_env, block) => {
+                let it = self.1.iter().map(|x| x.interp(env));
+                let locals = local_env.extend(&params, it);
+
+                let mut closure_env = Env { locals, globals: env.globals };
+                block.interp(&mut closure_env)
+            }
         }
     }
 }
@@ -75,13 +81,8 @@ impl Exp_ {
             }
             Exp_::ExpFunctionCall(f) => f.interp(env),
             Exp_::FunctionDef(fun_body) => {
-                todo!();
-                /*
-                let it = std::iter::repeat(Value::Nil).take(fun_body.0.len());
-                let local_env = env.locals.extend(&fun_body.0, it);
-                let f = Function::Closure(&fun_body.0, local_env, &fun_body.1);
+                let f = Function::Closure(&fun_body.0, env.locals.clone(), &fun_body.1);
                 Value::Function(f)
-                */
             }
             Exp_::BinOp(binop, e1, e2) => {
                 match binop {
