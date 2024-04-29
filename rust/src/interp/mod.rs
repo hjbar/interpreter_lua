@@ -106,7 +106,6 @@ impl Exp_ {
                             _ => e2.interp(env),
                         }
                     }
-                    //Value::Bool(e1.interp(env).as_bool() && e2.interp(env).as_bool()) },
                     BinOp::LogicalOr => {
                         match e1.interp(env) {
                             Value::Bool(false) => e2.interp(env),
@@ -115,7 +114,6 @@ impl Exp_ {
                             val => val,
                         }
                     }
-                    //Value::Bool(e1.interp(env).as_bool() || e2.interp(env).as_bool())
                 }
             }
             Exp_::UnOp(unop, exp) => {

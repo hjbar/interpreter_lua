@@ -80,7 +80,17 @@ impl<'ast> LEnv<'ast> {
     {
         let mut scope = HashMap::new();
 
-        for (i, v) in values.enumerate() {
+        let mut vec : Vec<Value> = values.collect();
+        let vec_len = vec.len();
+        let names_len = names.len();
+
+        if names_len < vec_len {
+            vec.truncate(names_len);
+        } else if names_len > vec_len {
+            vec.resize(names_len, Value::Nil);
+        }
+
+        for (i, v) in vec.into_iter().enumerate() {
             scope.insert(&names[i], v.into());
         }
 
