@@ -53,8 +53,12 @@ impl FunctionCall {
                 Value::Function(Function::Print)
             }
             Function::Closure(params, local_env, block) => {
-                let it = self.1.iter().map(|x| x.interp(env));
-                let locals = local_env.extend(&params, it);
+                let params_len = params.len();
+                let args_len = self.1.len();
+                let args_diff = if args_len < params_len { params_len - args_len } else { 0 };
+
+                let it = self.1.iter().map(|exp| exp.interp(env)).chain(vec![Value::Nil; args_diff]);
+                let locals = local_env.extend(params, it);
 
                 let mut closure_env = Env { locals, globals: env.globals };
                 block.interp(&mut closure_env)
