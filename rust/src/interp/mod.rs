@@ -12,10 +12,12 @@ impl Block {
     // Interprétation d'un bloc
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) -> Value<'ast> {
         let it = std::iter::repeat(Value::Nil).take(self.locals.len());
-        env.locals.extend(&self.locals, it);
+        let locals = env.locals.extend(&self.locals, it);
 
-        self.body.interp(env);
-        return self.ret.interp(env);
+        let mut env = Env { locals, globals: env.globals };
+
+        self.body.interp(&mut env);
+        return self.ret.interp(&mut env);
     }
 }
 
@@ -23,7 +25,7 @@ impl Stat_ {
     // Interprétation d'une instruction
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) {
         match self {
-            Stat_::Nop => (), // TODO: Bizarre
+            Stat_::Nop => (),
             Stat_::Seq(s1, s2) => { s1.interp(env); s2.interp(env) }
             Stat_::StatFunctionCall(f) => { f.interp(env); }
             Stat_::Assign(var, exp) => {
@@ -50,7 +52,7 @@ impl FunctionCall {
                 }
                 print!("{}\n", self.1[last_index].interp(env));
 
-                Value::Function(Function::Print)
+                Value::Nil
             }
             Function::Closure(params, local_env, block) => {
                 let params_len = params.len();
@@ -89,41 +91,39 @@ impl Exp_ {
                 Value::Function(f)
             }
             Exp_::BinOp(binop, e1, e2) => {
+                let v1 = e1.interp(env);
+
+                if let BinOp::LogicalAnd = binop {
+                    return if v1.as_bool() { e2.interp(env) } else { v1 };
+                }
+
+                if let BinOp::LogicalOr = binop {
+                    return if v1.as_bool() { v1 } else { e2.interp(env) };
+                }
+
+                let v2 = e2.interp(env);
+
                 match binop {
                     /* arithmetic operators */
-                    BinOp::Addition => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::add(n1, n2) }
-                    BinOp::Subtraction => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::sub(n1, n2) }
-                    BinOp::Multiplication => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::mul(n1, n2) }
+                    BinOp::Addition => v1.add(v2),
+                    BinOp::Subtraction => v1.sub(v2),
+                    BinOp::Multiplication => v1.mul(v2),
                     /* relational operators */
-                    BinOp::Equality => { let b1 = e1.interp(env); let b2 = e2.interp(env); Value::Bool(b1 == b2) },
-                    BinOp::Inequality => { let b1 = e1.interp(env); let b2 = e2.interp(env); Value::Bool(b1 != b2) },
-                    BinOp::Less => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(Value::lt(n1, n2)) }
-                    BinOp::Greater => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(!Value::le(n1, n2)) }
-                    BinOp::LessEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(Value::le(n1, n2)) }
-                    BinOp::GreaterEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(!Value::lt(n1, n2)) }
+                    BinOp::Equality => Value::Bool(v1 == v2),
+                    BinOp::Inequality => Value::Bool(v1 != v2),
+                    BinOp::Less => Value::Bool(v1.lt(v2)),
+                    BinOp::Greater => Value::Bool(!v1.le(v2)),
+                    BinOp::LessEq => Value::Bool(v1.le(v2)),
+                    BinOp::GreaterEq => Value::Bool(!v1.lt(v2)),
                     /* logical operators */
-                    BinOp::LogicalAnd => {
-                        match e1.interp(env) {
-                            Value::Bool(false) => Value::Bool(false),
-                            Value::Bool(true) => e2.interp(env),
-                            Value::Nil => Value::Nil,
-                            _ => e2.interp(env),
-                        }
-                    }
-                    BinOp::LogicalOr => {
-                        match e1.interp(env) {
-                            Value::Bool(false) => e2.interp(env),
-                            Value::Bool(true) => Value::Bool(true),
-                            Value::Nil => e2.interp(env),
-                            val => val,
-                        }
-                    }
+                    _ => unreachable!(),
                 }
             }
             Exp_::UnOp(unop, exp) => {
+                let v = exp.interp(env);
                 match unop {
-                    UnOp::Not => Value::Bool(!exp.interp(env).as_bool()),
-                    UnOp::UnaryMinus => exp.interp(env).neg(),
+                    UnOp::Not => Value::Bool(!v.as_bool()),
+                    UnOp::UnaryMinus => v.neg(),
                 }
             }
             Exp_::Table(vec) => todo!(),

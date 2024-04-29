@@ -41,4 +41,3 @@ function main()
     print(f1(), f1(), f2(), f1())
     print(a)
 end
-

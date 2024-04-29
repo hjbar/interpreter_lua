@@ -85,8 +85,7 @@ impl<'ast> LEnv<'ast> {
             scope.insert(&names[i], v.into());
         }
 
-        let cons = LEnv::Cons(scope, self.clone());
-        Rc::new(cons)
+        Rc::new(LEnv::Cons(scope, self.clone()))
     }
 }
 
