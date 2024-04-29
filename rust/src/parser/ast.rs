@@ -53,6 +53,7 @@ pub type Args = Vec<Exp>;
 
 #[derive(Debug)]
 pub enum BinOp {
+    /* arithmetic operators */
     Addition,
     Subtraction,
     Multiplication,

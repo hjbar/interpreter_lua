@@ -86,6 +86,7 @@ impl Exp_ {
             }
             Exp_::BinOp(binop, e1, e2) => {
                 match binop {
+                    /* arithmetic operators */
                     BinOp::Addition => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::add(n1, n2) }
                     BinOp::Subtraction => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::sub(n1, n2) }
                     BinOp::Multiplication => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::mul(n1, n2) }
@@ -97,8 +98,24 @@ impl Exp_ {
                     BinOp::LessEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(Value::le(n1, n2)) }
                     BinOp::GreaterEq => { let n1 = e1.interp(env); let n2 = e2.interp(env); Value::Bool(!Value::lt(n1, n2)) }
                     /* logical operators */
-                    BinOp::LogicalAnd => { let b1 = e1.interp(env).as_bool(); let b2 = e2.interp(env).as_bool(); Value::Bool(b1 && b2) },
-                    BinOp::LogicalOr => { let b1 = e1.interp(env).as_bool(); let b2 = e2.interp(env).as_bool(); Value::Bool(b1 || b2) },
+                    BinOp::LogicalAnd => {
+                        match e1.interp(env) {
+                            Value::Bool(false) => Value::Bool(false),
+                            Value::Bool(true) => e2.interp(env),
+                            Value::Nil => Value::Nil,
+                            _ => e2.interp(env),
+                        }
+                    }
+                    //Value::Bool(e1.interp(env).as_bool() && e2.interp(env).as_bool()) },
+                    BinOp::LogicalOr => {
+                        match e1.interp(env) {
+                            Value::Bool(false) => e2.interp(env),
+                            Value::Bool(true) => Value::Bool(true),
+                            Value::Nil => e2.interp(env),
+                            val => val,
+                        }
+                    }
+                    //Value::Bool(e1.interp(env).as_bool() || e2.interp(env).as_bool())
                 }
             }
             Exp_::UnOp(unop, exp) => {
