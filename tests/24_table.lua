@@ -8,4 +8,3 @@ end
 
 t.c = "c"
 print(t.a, t.b, t.c)
-

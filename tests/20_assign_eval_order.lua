@@ -17,4 +17,3 @@ function h() print(x.a); x.a = 3; return 12 end
 
 f()[g()] = 12
 print(x.a)
-

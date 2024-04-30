@@ -3,7 +3,11 @@ use self::{
     value::{Function, Value},
 };
 use crate::parser::ast::*;
-use std::{collections::HashMap, rc::Rc};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    cell::RefCell
+};
 
 mod env;
 pub mod value;
@@ -31,7 +35,12 @@ impl Stat_ {
             Stat_::Assign(var, exp) => {
                 match var {
                     Var::Name(name) => { let val = exp.interp(env); env.set(name, val) }
-                    Var::IndexTable(e1, e2) => todo!(),
+                    Var::IndexTable(tbl, k) => {
+                        let table = tbl.interp(env).as_table();
+                        let key = k.interp(env).as_table_key();
+                        let val = exp.interp(env);
+                        table.clone().borrow_mut().insert(key, val);
+                    }
                 }
             }
             Stat_::WhileDoEnd(exp, stat) => while exp.interp(env).as_bool() { stat.interp(env) },
@@ -82,7 +91,14 @@ impl Exp_ {
             Exp_::Var(v) => {
                 match v {
                     Var::Name(name) => env.lookup(name),
-                    Var::IndexTable(e1, e2) => todo!(),
+                    Var::IndexTable(tbl, k) => {
+                        let table = tbl.interp(env).as_table();
+                        let key = k.interp(env).as_table_key();
+                        match table.clone().borrow().get(&key) {
+                            None => Value::Nil,
+                            Some(res) => res.clone(),
+                        }
+                    }
                 }
             }
             Exp_::ExpFunctionCall(f) => f.interp(env),
@@ -126,7 +142,17 @@ impl Exp_ {
                     UnOp::UnaryMinus => v.neg(),
                 }
             }
-            Exp_::Table(vec) => todo!(),
+            Exp_::Table(items) => {
+                let mut table = HashMap::new();
+
+                for (key, val) in items {
+                    let key = key.interp(env).as_table_key();
+                    let val = val.interp(env);
+                    table.insert(key, val);
+                }
+
+                Value::Table(Rc::new(RefCell::new(table)))
+            }
         }
     }
 }
