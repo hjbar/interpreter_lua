@@ -56,6 +56,7 @@ impl<'ast> LEnv<'ast> {
             LEnv::Nil => None,
             LEnv::Cons(scope, lenv) => {
                 let res = scope.get(name);
+
                 if res.is_none() {
                     lenv.lookup(name)
                 } else {
@@ -74,7 +75,7 @@ impl<'ast> LEnv<'ast> {
     // fonction, mais aussi compléter les annotations de lifetimes : le choix
     // par défaut fait par le compilateur Rust ne permet pas d'implémenter
     // correctement l'interpréteur.
-    pub fn extend<V>(self: &Rc<Self>, names: &'ast[Name], values: V) -> Rc<Self>
+    pub fn extend<V>(self: &Rc<Self>, names: &'ast [Name], values: V) -> Rc<Self>
     where
         V: Iterator<Item = Value<'ast>>,
     {
@@ -114,8 +115,12 @@ impl<'ast, 'genv> Env<'ast, 'genv> {
     // modifiant une entrée déjà existante, soit en en créant une nouvelle.
     pub fn set(&mut self, name: &'ast Name, v: Value<'ast>) {
         match self.locals.lookup(name) {
-            None => { self.globals.0.insert(name, v); }
-            Some(res) => { res.replace(v); }
+            None => {
+                self.globals.0.insert(name, v);
+            }
+            Some(res) => {
+                res.replace(v);
+            }
         }
     }
 }

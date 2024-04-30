@@ -3,11 +3,7 @@ use self::{
     value::{Function, Value},
 };
 use crate::parser::ast::*;
-use std::{
-    collections::HashMap,
-    rc::Rc,
-    cell::RefCell
-};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 mod env;
 pub mod value;
@@ -18,7 +14,10 @@ impl Block {
         let it = std::iter::repeat(Value::Nil).take(self.locals.len());
         let locals = env.locals.extend(&self.locals, it);
 
-        let mut env = Env { locals, globals: env.globals };
+        let mut env = Env {
+            locals,
+            globals: env.globals,
+        };
 
         self.body.interp(&mut env);
         return self.ret.interp(&mut env);
@@ -30,21 +29,44 @@ impl Stat_ {
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) {
         match self {
             Stat_::Nop => (),
-            Stat_::Seq(s1, s2) => { s1.interp(env); s2.interp(env) }
-            Stat_::StatFunctionCall(f) => { f.interp(env); }
-            Stat_::Assign(var, exp) => {
-                match var {
-                    Var::Name(name) => { let val = exp.interp(env); env.set(name, val) }
-                    Var::IndexTable(tbl, k) => {
-                        let table = tbl.interp(env).as_table();
-                        let key = k.interp(env).as_table_key();
-                        let val = exp.interp(env);
-                        table.clone().borrow_mut().insert(key, val);
-                    }
+
+            Stat_::Seq(s1, s2) => {
+                s1.interp(env);
+                s2.interp(env)
+            }
+
+            Stat_::StatFunctionCall(f) => {
+                f.interp(env);
+            }
+
+            Stat_::Assign(var, exp) => match var {
+                Var::Name(name) => {
+                    let val = exp.interp(env);
+                    env.set(name, val)
+                }
+
+                Var::IndexTable(tbl, k) => {
+                    let table = tbl.interp(env).as_table();
+                    let key = k.interp(env).as_table_key();
+                    let val = exp.interp(env);
+
+                    table.clone().borrow_mut().insert(key, val);
+                }
+            },
+
+            Stat_::WhileDoEnd(exp, stat) => {
+                while exp.interp(env).as_bool() {
+                    stat.interp(env)
                 }
             }
-            Stat_::WhileDoEnd(exp, stat) => while exp.interp(env).as_bool() { stat.interp(env) },
-            Stat_::If(exp, s1, s2) => if exp.interp(env).as_bool() { s1.interp(env) } else { s2.interp(env) },
+
+            Stat_::If(exp, s1, s2) => {
+                if exp.interp(env).as_bool() {
+                    s1.interp(env)
+                } else {
+                    s2.interp(env)
+                }
+            }
         }
     }
 }
@@ -63,15 +85,30 @@ impl FunctionCall {
 
                 Value::Nil
             }
+
             Function::Closure(params, local_env, block) => {
                 let params_len = params.len();
                 let args_len = self.1.len();
-                let args_diff = if args_len < params_len { params_len - args_len } else { 0 };
 
-                let it = self.1.iter().map(|exp| exp.interp(env)).chain(vec![Value::Nil; args_diff]);
+                let args_diff = if args_len < params_len {
+                    params_len - args_len
+                } else {
+                    0
+                };
+
+                let it = self
+                    .1
+                    .iter()
+                    .map(|exp| exp.interp(env))
+                    .chain(vec![Value::Nil; args_diff]);
+
                 let locals = local_env.extend(params, it);
 
-                let mut closure_env = Env { locals, globals: env.globals };
+                let mut closure_env = Env {
+                    locals,
+                    globals: env.globals,
+                };
+
                 block.interp(&mut closure_env)
             }
         }
@@ -82,30 +119,37 @@ impl Exp_ {
     // Interprétation d'une expression
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) -> Value<'ast> {
         match self {
-
             Exp_::Nil => Value::Nil,
+
             Exp_::False => Value::Bool(false),
+
             Exp_::True => Value::Bool(true),
+
             Exp_::Number(n) => Value::Number(*n),
+
             Exp_::LiteralString(s) => Value::String(s.clone()),
-            Exp_::Var(v) => {
-                match v {
-                    Var::Name(name) => env.lookup(name),
-                    Var::IndexTable(tbl, k) => {
-                        let table = tbl.interp(env).as_table();
-                        let key = k.interp(env).as_table_key();
-                        match table.clone().borrow().get(&key) {
-                            None => Value::Nil,
-                            Some(res) => res.clone(),
-                        }
+
+            Exp_::Var(v) => match v {
+                Var::Name(name) => env.lookup(name),
+
+                Var::IndexTable(tbl, k) => {
+                    let table = tbl.interp(env).as_table();
+                    let key = k.interp(env).as_table_key();
+
+                    match table.clone().borrow().get(&key) {
+                        None => Value::Nil,
+                        Some(res) => res.clone(),
                     }
                 }
-            }
+            },
+
             Exp_::ExpFunctionCall(f) => f.interp(env),
+
             Exp_::FunctionDef(fun_body) => {
                 let f = Function::Closure(&fun_body.0, env.locals.clone(), &fun_body.1);
                 Value::Function(f)
             }
+
             Exp_::BinOp(binop, e1, e2) => {
                 let v1 = e1.interp(env);
 
@@ -135,6 +179,7 @@ impl Exp_ {
                     _ => unreachable!(),
                 }
             }
+
             Exp_::UnOp(unop, exp) => {
                 let v = exp.interp(env);
                 match unop {
@@ -142,6 +187,7 @@ impl Exp_ {
                     UnOp::UnaryMinus => v.neg(),
                 }
             }
+
             Exp_::Table(items) => {
                 let mut table = HashMap::new();
 
