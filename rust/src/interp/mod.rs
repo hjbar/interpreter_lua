@@ -20,7 +20,7 @@ impl Block {
         };
 
         self.body.interp(&mut env);
-        return self.ret.interp(&mut env);
+        self.ret.interp(&mut env)
     }
 }
 
@@ -39,20 +39,18 @@ impl Stat_ {
                 f.interp(env);
             }
 
-            Stat_::Assign(var, exp) => match var {
-                Var::Name(name) => {
-                    let val = exp.interp(env);
-                    env.set(name, val)
-                }
+            Stat_::Assign(Var::Name(name), exp) => {
+                let val = exp.interp(env);
+                env.set(name, val)
+            }
 
-                Var::IndexTable(tbl, k) => {
-                    let table = tbl.interp(env).as_table();
-                    let key = k.interp(env).as_table_key();
-                    let val = exp.interp(env);
+            Stat_::Assign(Var::IndexTable(tbl, k), exp) => {
+                let table = tbl.interp(env).as_table();
+                let key = k.interp(env).as_table_key();
+                let val = exp.interp(env);
 
-                    table.clone().borrow_mut().insert(key, val);
-                }
-            },
+                table.clone().borrow_mut().insert(key, val);
+            }
 
             Stat_::WhileDoEnd(exp, stat) => {
                 while exp.interp(env).as_bool() {
@@ -129,19 +127,17 @@ impl Exp_ {
 
             Exp_::LiteralString(s) => Value::String(s.clone()),
 
-            Exp_::Var(v) => match v {
-                Var::Name(name) => env.lookup(name),
+            Exp_::Var(Var::Name(name)) => env.lookup(name),
 
-                Var::IndexTable(tbl, k) => {
-                    let table = tbl.interp(env).as_table();
-                    let key = k.interp(env).as_table_key();
+            Exp_::Var(Var::IndexTable(tbl, k)) => {
+                let table = tbl.interp(env).as_table();
+                let key = k.interp(env).as_table_key();
 
-                    match table.clone().borrow().get(&key) {
-                        None => Value::Nil,
-                        Some(res) => res.clone(),
-                    }
+                match table.clone().borrow().get(&key) {
+                    None => Value::Nil,
+                    Some(res) => res.clone(),
                 }
-            },
+            }
 
             Exp_::ExpFunctionCall(f) => f.interp(env),
 
@@ -192,9 +188,9 @@ impl Exp_ {
                 let mut table = HashMap::new();
 
                 for (key, val) in items {
-                    let key = key.interp(env).as_table_key();
-                    let val = val.interp(env);
-                    table.insert(key, val);
+                    let k = key.interp(env).as_table_key();
+                    let v = val.interp(env);
+                    table.insert(k, v);
                 }
 
                 Value::Table(Rc::new(RefCell::new(table)))
