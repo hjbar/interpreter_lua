@@ -1,10 +1,9 @@
 exception Unhandled_ast of string
 
-module SSet = Set.Make(String)
+module SSet = Set.Make (String)
 
 let rec simp_block ((ss, rs) : Internalast.block) : Ast.stat =
-  if rs <> None then
-    raise (Unhandled_ast "return before end of function");
+  if rs <> None then raise (Unhandled_ast "return before end of function");
   simp_stats ss
 
 and simp_stats (l : Internalast.stat list) : Ast.stat =
@@ -14,7 +13,7 @@ and simp_stats (l : Internalast.stat list) : Ast.stat =
   List.fold_left fold Nop l
 
 and simp_stat : Internalast.stat -> Ast.stat = function
-  | Assign ([v], [e]) -> Assign (simp_var v, simp_exp e)
+  | Assign ([ v ], [ e ]) -> Assign (simp_var v, simp_exp e)
   | Assign (_, _) -> raise (Unhandled_ast "parallel assign")
   | FunctionCall fcall -> FunctionCall (simp_fcall fcall)
   | Break -> raise (Unhandled_ast "break")
@@ -28,9 +27,8 @@ and simp_stat : Internalast.stat -> Ast.stat = function
   | Goto _ -> raise (Unhandled_ast "goto")
   | DoEnd blk -> simp_block blk
   | RepeatUntil _ -> raise (Unhandled_ast "repeat .. until")
-  | ForStep _ | ForIn _  -> raise (Unhandled_ast "for loop")
-  | LocalAssign _ ->
-    raise (Unhandled_ast "inner local variable declaration")
+  | ForStep _ | ForIn _ -> raise (Unhandled_ast "for loop")
+  | LocalAssign _ -> raise (Unhandled_ast "inner local variable declaration")
 
 and simp_exp : Internalast.exp -> Ast.exp = function
   | Nil -> Nil
@@ -47,11 +45,13 @@ and simp_exp : Internalast.exp -> Ast.exp = function
   | Table t -> Table (simp_tableconstr t)
   | Vararg -> raise (Unhandled_ast "vararg")
 
-and simp_tableconstr : Internalast.tableconstr -> (Ast.exp * Ast.exp) list = fun l ->
-  List.map (function
-    | (Some k, v) -> (simp_exp k, simp_exp v)
-    | _ -> raise (Unhandled_ast "tables constructors with implicit keys")
-  ) l
+and simp_tableconstr : Internalast.tableconstr -> (Ast.exp * Ast.exp) list =
+ fun l ->
+  List.map
+    (function
+      | Some k, v -> (simp_exp k, simp_exp v)
+      | _ -> raise (Unhandled_ast "tables constructors with implicit keys") )
+    l
 
 and simp_binop : Internalast.binop -> Ast.binop = function
   | Addition -> Addition
@@ -81,29 +81,26 @@ and simp_fcall : Internalast.functioncall -> Ast.functioncall = function
   | Method _ -> raise (Unhandled_ast "method call")
 
 and simp_fbody : Internalast.funcbody -> Ast.funcbody =
-  fun (ns, _, blk) ->
-  let ns =
-    match ns with
-    | "self" :: ns -> ns
-    | _ -> ns
-  in
-  ns, simp_outerblock blk
+ fun (ns, _, blk) ->
+  let ns = match ns with "self" :: ns -> ns | _ -> ns in
+  (ns, simp_outerblock blk)
 
 and simp_outerblock (blk : Internalast.block) : Ast.block =
-  let rec split locals : Internalast.stat list -> Ast.name list * Internalast.stat list = function
-  | LocalAssign (_, Some _) :: _  ->
-    raise (Unhandled_ast "local variable declaration with initialization")
-  | LocalAssign (ns, None) :: q ->
-    let locals = List.fold_left (Fun.flip SSet.add) locals ns in
-    split locals q
-  | body -> (SSet.elements locals, body)
+  let rec split locals :
+    Internalast.stat list -> Ast.name list * Internalast.stat list = function
+    | LocalAssign (_, Some _) :: _ ->
+      raise (Unhandled_ast "local variable declaration with initialization")
+    | LocalAssign (ns, None) :: q ->
+      let locals = List.fold_left (Fun.flip SSet.add) locals ns in
+      split locals q
+    | body -> (SSet.elements locals, body)
   in
   let locals, body = split SSet.empty (fst blk) in
   let body = simp_stats body in
   let ret : Ast.exp =
     match snd blk with
     | None | Some [] -> Nil
-    | Some [e] -> simp_exp e
-    | Some (_::_) -> raise (Unhandled_ast "return with multiple values")
+    | Some [ e ] -> simp_exp e
+    | Some (_ :: _) -> raise (Unhandled_ast "return with multiple values")
   in
   { locals; body; ret }

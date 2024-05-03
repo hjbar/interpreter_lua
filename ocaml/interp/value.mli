@@ -30,10 +30,10 @@ and func =
    Si un nom de variable apparaît dans une table locale et dans une table
    globale, la table locale prend le dessus.
 *)
-and env = {
-  globals : (name, t) Hashtbl.t;
-  locals : (name, t) Hashtbl.t list;
-}
+and env =
+  { globals : (name, t) Hashtbl.t
+  ; locals : (name, t) Hashtbl.t list
+  }
 
 (* Convertit une valeur en chaîne pour l'affichage *)
 val to_string : t -> string

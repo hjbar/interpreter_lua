@@ -26,15 +26,13 @@ and func =
   | CoroutStatus (* la primitive coroutine.status *)
 
 (* Environnement de l'interpréteur *)
-and env = {
-  globals : (name, t) Hashtbl.t;
-  locals : (name, t) Hashtbl.t list;
-}
+and env =
+  { globals : (name, t) Hashtbl.t
+  ; locals : (name, t) Hashtbl.t list
+  }
 
 (* La représentation d'une coroutine *)
-and coroutine = {
-  mutable stat : coroutine_status
-}
+and coroutine = { mutable stat : coroutine_status }
 
 (* L'état interne d'une coroutine *)
 and coroutine_status =

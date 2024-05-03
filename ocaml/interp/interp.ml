@@ -1,30 +1,114 @@
 open Luaparser.Ast
+
 type value = Value.t
+
 type env = Value.env
 
 (* Fonction auxiliaire pour créer une table d'environnement à partir de noms et
    valeurs associées. *)
-let create_scope (names: string list) (values: value list) : (name, value) Hashtbl.t =
-  assert false
+let create_scope (names : string list) (values : value list) :
+  (name, value) Hashtbl.t =
+  let htbl = Hashtbl.create 16 in
+
+  List.iter2 (fun name value -> Hashtbl.replace htbl name value) names values;
+
+  htbl
 
 (* Fonctions de l'interprète, mutuellement récursives. Une fonction par
    catégorie syntaxique de l'AST. *)
 
 (* Interprète un bloc de code *)
 let rec interp_block (env : env) (blk : block) : value =
-  assert false
+  let values = List.init (List.length blk.locals) (fun _i -> Value.Nil) in
+  let local_scope = create_scope blk.locals values in
+
+  let env : env =
+    { globals = env.globals; locals = local_scope :: env.locals }
+  in
+
+  interp_stat env blk.body;
+  interp_exp env blk.ret
 
 (* Interprète un statement *)
 and interp_stat (env : env) (stat : stat) : unit =
-  assert false
+  match stat with
+  | Nop -> ()
+  | Seq (s1, s2) ->
+    interp_stat env s1;
+    interp_stat env s2
+  | Assign (var, exp) -> begin
+    let value = interp_exp env exp in
+    match var with
+    | Name name -> Value.set_ident env name value
+    | IndexTable (tbl, key) -> failwith "todo"
+  end
+  | FunctionCall f -> interp_funcall env f |> ignore
+  | WhileDoEnd (exp, stat) ->
+    while interp_exp env exp |> Value.as_bool do
+      interp_stat env stat
+    done
+  | If (exp, s1, s2) ->
+    if interp_exp env exp |> Value.as_bool then interp_stat env s1
+    else interp_stat env s2
 
 (* Interprète un appel de fonction *)
 and interp_funcall (env : env) (fc : functioncall) : value =
-  assert false
+  let f, args = fc in
+  match interp_exp env f |> Value.as_function with
+  | Print ->
+    let () =
+      List.map (fun exp -> interp_exp env exp |> Value.to_string) args
+      |> String.concat "\t" |> Printf.printf "%s\n"
+    in
+
+    Value.Nil
+  | Closure (names, local_env, block) -> failwith "todo"
 
 (* Interprète une expression *)
 and interp_exp (env : env) (e : exp) : value =
- assert false
+  match e with
+  | Nil -> Value.Nil
+  | False -> Value.Bool false
+  | True -> Value.Bool true
+  | Integer n -> Value.Int n
+  | Float f -> Value.Float f
+  | LiteralString s -> Value.String s
+  | Var var -> begin
+    match var with
+    | Name name -> Value.lookup_ident env name
+    | IndexTable (tbl, key) -> failwith "todo"
+  end
+  | FunctionCallE f -> interp_funcall env f
+  | FunctionDef fun_body -> failwith "todo"
+  | BinOp (op, e1, e2) -> begin
+    let v1 = interp_exp env e1 in
+    match op with
+    | LogicalAnd -> if Value.as_bool v1 then interp_exp env e2 else v1
+    | LogicalOr -> if Value.as_bool v1 then v1 else interp_exp env e2
+    | _ -> begin
+      let v2 = interp_exp env e2 in
+      match op with
+      (* arithmetic operators *)
+      | Addition -> Value.add v1 v2
+      | Subtraction -> Value.sub v1 v2
+      | Multiplication -> Value.mul v1 v2
+      (* relational operators *)
+      | Equality -> Value.Bool (Value.equal v1 v2)
+      | Inequality -> Value.Bool (not (Value.equal v1 v2))
+      | Less -> Value.Bool (Value.lt v1 v2)
+      | Greater -> Value.Bool (Value.le v1 v2 |> not)
+      | LessEq -> Value.Bool (Value.le v1 v2)
+      | GreaterEq -> Value.Bool (Value.lt v1 v2 |> not)
+      | _ -> assert false
+    end
+  end
+  | UnOp (op, exp) -> begin
+    let value = interp_exp env exp in
+    match op with
+    | UnaryMinus -> Value.neg value
+    | Not -> Value.Bool (Value.as_bool value |> not)
+  end
+  | Table items -> failwith "todo"
 
 let run ast =
   let globals = Hashtbl.create 47 in
