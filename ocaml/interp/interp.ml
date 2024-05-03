@@ -29,9 +29,8 @@ let create_scope (names : string list) (values : value list) :
 
 (* Interprète un bloc de code *)
 let rec interp_block (env : env) (blk : block) : value =
-  let values = List.map (Fun.const Value.Nil) blk.locals in
-  let local_scope = create_scope blk.locals values in
-
+  (* le padding avec Value.Nil est geré par create_scope *)
+  let local_scope = create_scope blk.locals [] in
   let env = { env with locals = local_scope :: env.locals } in
 
   interp_stat env blk.body;
@@ -44,17 +43,14 @@ and interp_stat (env : env) (stat : stat) : unit =
   | Seq (s1, s2) ->
     interp_stat env s1;
     interp_stat env s2
-  | Assign (var, exp) -> begin
-    match var with
-    | Name name ->
-      let value = interp_exp env exp in
-      Value.set_ident env name value
-    | IndexTable (tbl, k) ->
-      let table = interp_exp env tbl |> Value.as_table in
-      let key = interp_exp env k |> Value.as_table_key in
-      let value = interp_exp env exp in
-      Hashtbl.replace table key value
-  end
+  | Assign (Name name, exp) ->
+    let value = interp_exp env exp in
+    Value.set_ident env name value
+  | Assign (IndexTable (tbl, k), exp) ->
+    let table = interp_exp env tbl |> Value.as_table in
+    let key = interp_exp env k |> Value.as_table_key in
+    let value = interp_exp env exp in
+    Hashtbl.replace table key value
   | FunctionCall f -> interp_funcall env f |> ignore
   | WhileDoEnd (exp, stat) ->
     while interp_exp env exp |> Value.as_bool do
@@ -75,6 +71,8 @@ and interp_funcall (env : env) (fc : functioncall) : value =
     in
     Value.Nil
   | Closure (params, local_env, block) ->
+    (* la possible différence de longueur entre les
+       paramètres et les arguments est geré par create_scope *)
     let args_evaluated = List.map (interp_exp env) args in
     let local_scope = create_scope params args_evaluated in
 

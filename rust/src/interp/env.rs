@@ -80,10 +80,15 @@ impl<'ast> LEnv<'ast> {
         V: Iterator<Item = Value<'ast>>,
     {
         let mut scope = HashMap::new();
-        let it = values.take(names.len()).enumerate();
 
-        for (i, v) in it {
-            scope.insert(&names[i], v.into());
+        // on créer un itérateur infini de Value::Nil puis
+        // la fonction zip réduit la longueur de l'itérateur
+        // final à la minimale entre celles des deux itérateurs
+        let padding = std::iter::repeat(Value::Nil);
+        let it = names.iter().zip(values.chain(padding));
+
+        for (name, value) in it {
+            scope.insert(name, value.into());
         }
 
         Rc::new(LEnv::Cons(scope, self.clone()))

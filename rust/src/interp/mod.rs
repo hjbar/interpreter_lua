@@ -11,7 +11,8 @@ pub mod value;
 impl Block {
     // Interprétation d'un bloc
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) -> Value<'ast> {
-        let it = std::iter::repeat(Value::Nil).take(self.locals.len());
+        // le padding avec Value::Nil est geré par extend
+        let it = std::iter::empty();
         let locals = env.locals.extend(&self.locals, it);
 
         let mut env = Env {
@@ -85,21 +86,9 @@ impl FunctionCall {
             }
 
             Function::Closure(params, local_env, block) => {
-                let params_len = params.len();
-                let args_len = self.1.len();
-
-                let args_diff = if args_len < params_len {
-                    params_len - args_len
-                } else {
-                    0
-                };
-
-                let it = self
-                    .1
-                    .iter()
-                    .map(|exp| exp.interp(env))
-                    .chain(vec![Value::Nil; args_diff]);
-
+                // la possible différence de longueur entre les
+                // paramètres et les arguments est geré par extend
+                let it = self.1.iter().map(|exp| exp.interp(env));
                 let locals = local_env.extend(params, it);
 
                 let mut closure_env = Env {
