@@ -29,12 +29,10 @@ let create_scope (names : string list) (values : value list) :
 
 (* Interprète un bloc de code *)
 let rec interp_block (env : env) (blk : block) : value =
-  let values = List.init (List.length blk.locals) (fun _i -> Value.Nil) in
+  let values = List.map (Fun.const Value.Nil) blk.locals in
   let local_scope = create_scope blk.locals values in
 
-  let env : env =
-    { globals = env.globals; locals = local_scope :: env.locals }
-  in
+  let env = { env with locals = local_scope :: env.locals } in
 
   interp_stat env blk.body;
   interp_exp env blk.ret
@@ -75,16 +73,12 @@ and interp_funcall (env : env) (fc : functioncall) : value =
       List.map (fun exp -> interp_exp env exp |> Value.to_string) args
       |> String.concat "\t" |> Printf.printf "%s\n"
     in
-
     Value.Nil
   | Closure (params, local_env, block) ->
     let args_evaluated = List.map (interp_exp env) args in
     let local_scope = create_scope params args_evaluated in
 
-    let env : env =
-      { globals = local_env.globals; locals = local_scope :: local_env.locals }
-    in
-
+    let env = { local_env with locals = local_scope :: local_env.locals } in
     interp_block env block
 
 (* Interprète une expression *)
@@ -120,7 +114,7 @@ and interp_exp (env : env) (e : exp) : value =
       | Multiplication -> Value.mul v1 v2
       (* relational operators *)
       | Equality -> Value.Bool (Value.equal v1 v2)
-      | Inequality -> Value.Bool (not (Value.equal v1 v2))
+      | Inequality -> Value.Bool (Value.equal v1 v2 |> not)
       | Less -> Value.Bool (Value.lt v1 v2)
       | Greater -> Value.Bool (Value.le v1 v2 |> not)
       | LessEq -> Value.Bool (Value.le v1 v2)
