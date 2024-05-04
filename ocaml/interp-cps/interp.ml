@@ -59,8 +59,7 @@ and interp_stat (env : env) (stat : stat) (k : unit -> unit) : unit =
 and while_do_end env exp stat =
   interp_exp env exp (fun value ->
       if Value.as_bool value then
-        interp_stat env stat (fun _ -> while_do_end env exp stat)
-      else () )
+        interp_stat env stat (fun _ -> while_do_end env exp stat) )
 
 and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
   let f, args = fc in
@@ -80,17 +79,6 @@ and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
       | CoroutYield -> failwith "interp_funcall CoroutYield"
       | CoroutStatus -> failwith "interp_funcall CoroutStatus" )
 
-and print env args =
-  match args with
-  | [] -> ()
-  | [ exp ] ->
-    interp_exp env exp (fun value ->
-        Printf.printf "%s\n" (value |> Value.to_string) )
-  | exp :: args' ->
-    interp_exp env exp (fun value ->
-        Printf.printf "%s\t" (value |> Value.to_string);
-        print env args' )
-
 and eval_args env args =
   let res = ref [] in
   let rec loop l =
@@ -104,8 +92,20 @@ and eval_args env args =
   loop args;
   List.rev !res
 
+and print env args =
+  match args with
+  | [] -> ()
+  | [ exp ] ->
+    interp_exp env exp (fun value ->
+        Printf.printf "%s\n" (value |> Value.to_string) )
+  | exp :: args' ->
+    interp_exp env exp (fun value ->
+        Printf.printf "%s\t" (value |> Value.to_string);
+        print env args' )
+
 and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
   match e with
+  (* expressions avec k interne *)
   | Var (IndexTable (table, key)) ->
     interp_exp env table (fun value_tbl ->
         interp_exp env key (fun value_k ->
@@ -150,6 +150,7 @@ and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
           | Not -> Value.Bool (Value.as_bool value |> not)
         in
         k value' )
+  (* expressions avec k externe *)
   | _ -> begin
     let value =
       match e with
@@ -189,8 +190,10 @@ let run ast =
   Hashtbl.add coroutine (KString "yield") (Value.Function CoroutYield);
   Hashtbl.add coroutine (KString "mini_resume") (Value.Function CoroutResume);
   Hashtbl.add coroutine (KString "status") (Value.Function CoroutStatus);
+
   let globals : (string, value) Hashtbl.t = Hashtbl.create 47 in
   Hashtbl.add globals "print" (Function Print);
   Hashtbl.add globals "coroutine" (Table coroutine);
+
   let env = Value.{ globals; locals = [] } in
   interp_block env ast (fun _ -> ())
