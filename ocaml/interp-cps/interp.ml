@@ -39,52 +39,73 @@ and interp_stat (env : env) (stat : stat) (k : unit -> unit) : unit =
     | Seq (s1, s2) ->
       interp_stat env s1 (fun _ -> interp_stat env s2 (fun _ -> ()))
     | Assign (Name name, exp) ->
-      interp_exp env exp (fun value -> Value.set_ident env name value (*|> k*))
-    | Assign (IndexTable (tbl, k), exp) ->
-      failwith "interp_stat Assign IndexTable"
+      interp_exp env exp (fun value -> Value.set_ident env name value)
+    | Assign (IndexTable (table, key), exp) ->
+      interp_exp env table (fun table_v ->
+          interp_exp env key (fun key_v ->
+              interp_exp env exp (fun value ->
+                  let table = Value.as_table table_v in
+                  let key = Value.as_table_key key_v in
+                  Hashtbl.replace table key value ) ) )
     | FunctionCall f -> interp_funcall env f (fun _ -> ())
-    | WhileDoEnd (exp, stat) -> failwith "interp_stat WhileDoEnd"
-    | If (exp, s1, s2) -> failwith "interp_stat If"
+    | WhileDoEnd (exp, stat) -> while_do_end env exp stat
+    | If (exp, s1, s2) ->
+      interp_exp env exp (fun value ->
+          if Value.as_bool value then interp_stat env s1 (fun _ -> ())
+          else interp_stat env s2 (fun _ -> ()) )
   in
   k stat
+
+and while_do_end env exp stat =
+  interp_exp env exp (fun value ->
+      if Value.as_bool value then
+        interp_stat env stat (fun _ -> while_do_end env exp stat)
+      else () )
 
 and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
   let f, args = fc in
   interp_exp env f (fun res ->
-      let value =
-        match Value.as_function res with
-        | Closure (params, local_env, block) ->
-          failwith "interp_funcall Closure"
-        | Print ->
-          let rec loop l =
-            match l with
-            | [] -> ()
-            | [ exp ] ->
-              interp_exp env exp (fun value ->
-                  Printf.printf "%s\n" (value |> Value.to_string) )
-            | exp :: l' ->
-              interp_exp env exp (fun value ->
-                  Printf.printf "%s\t" (value |> Value.to_string) );
-              loop l'
-          in
-          loop args;
-          Value.Nil
-        | CoroutCreate -> failwith "interp_funcall CoroutCreate"
-        | CoroutResume -> failwith "interp_funcall CoroutResume"
-        | CoroutYield -> failwith "interp_funcall CoroutYield"
-        | CoroutStatus -> failwith "interp_funcall CoroutStatus"
-      in
-      k value )
+      match Value.as_function res with
+      | Closure (params, local_env, block) ->
+        let args_evaluated = eval_args env args in
+        let local_scope = create_scope params args_evaluated in
+
+        let env = { local_env with locals = local_scope :: local_env.locals } in
+        interp_block env block (fun value -> k value)
+      | Print ->
+        print env args;
+        k Value.Nil
+      | CoroutCreate -> failwith "interp_funcall CoroutCreate"
+      | CoroutResume -> failwith "interp_funcall CoroutResume"
+      | CoroutYield -> failwith "interp_funcall CoroutYield"
+      | CoroutStatus -> failwith "interp_funcall CoroutStatus" )
+
+and print env args =
+  match args with
+  | [] -> ()
+  | [ exp ] ->
+    interp_exp env exp (fun value ->
+        Printf.printf "%s\n" (value |> Value.to_string) )
+  | exp :: args' ->
+    interp_exp env exp (fun value ->
+        Printf.printf "%s\t" (value |> Value.to_string);
+        print env args' )
+
+and eval_args env args =
+  let res = ref [] in
+  let rec loop l =
+    match l with
+    | [] -> ()
+    | exp :: l' ->
+      interp_exp env exp (fun value ->
+          res := value :: !res;
+          loop l' )
+  in
+  loop args;
+  List.rev !res
 
 and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
   match e with
-  | Nil -> Value.Nil |> k
-  | False -> Value.Bool false |> k
-  | True -> Value.Bool true |> k
-  | Integer n -> Value.Int n |> k
-  | Float f -> Value.Float f |> k
-  | LiteralString s -> Value.String s |> k
-  | Var (Name name) -> Value.lookup_ident env name |> k
   | Var (IndexTable (table, key)) ->
     interp_exp env table (fun value_tbl ->
         interp_exp env key (fun value_k ->
@@ -95,10 +116,6 @@ and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
             in
             k value ) )
   | FunctionCallE f -> interp_funcall env f (fun value -> k value)
-  | FunctionDef fun_body ->
-    let params, code = fun_body in
-    let f = Value.Closure (params, env, code) in
-    Value.Function f |> k
   | BinOp (op, e1, e2) ->
     interp_exp env e1 (fun v1 ->
         match op with
@@ -133,7 +150,38 @@ and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
           | Not -> Value.Bool (Value.as_bool value |> not)
         in
         k value' )
-  | Table items -> failwith "interp_exp Table"
+  | _ -> begin
+    let value =
+      match e with
+      | Nil -> Value.Nil
+      | False -> Value.Bool false
+      | True -> Value.Bool true
+      | Integer n -> Value.Int n
+      | Float f -> Value.Float f
+      | LiteralString s -> Value.String s
+      | Var (Name name) -> Value.lookup_ident env name
+      | FunctionDef fun_body ->
+        let params, code = fun_body in
+        let f = Value.Closure (params, env, code) in
+        Value.Function f
+      | Table items ->
+        let htbl = Hashtbl.create 16 in
+        add_items env htbl items;
+        Value.Table htbl
+      | _ -> assert false
+    in
+    k value
+  end
+
+and add_items env table items =
+  match items with
+  | [] -> ()
+  | (k, v) :: items' ->
+    interp_exp env k (fun key ->
+        interp_exp env v (fun value ->
+            let key = Value.as_table_key key in
+            Hashtbl.replace table key value;
+            add_items env table items' ) )
 
 let run ast =
   let coroutine : (Value.tkey, value) Hashtbl.t = Hashtbl.create 4 in
