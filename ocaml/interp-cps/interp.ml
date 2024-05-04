@@ -33,16 +33,20 @@ let rec interp_block (env : env) (blk : block) (k : value -> unit) : unit =
       interp_exp env blk.ret (fun value -> k value) )
 
 and interp_stat (env : env) (stat : stat) (k : unit -> unit) : unit =
-  match stat with
-  | Nop -> k ()
-  | Seq (s1, s2) ->
-    interp_stat env s1 (fun _ -> interp_stat env s2 (fun _ -> k ()))
-  | Assign (Name name, exp) -> failwith "interp_stat Assign Name"
-  | Assign (IndexTable (tbl, k), exp) ->
-    failwith "interp_stat Assign IndexTable"
-  | FunctionCall f -> interp_funcall env f (fun _ -> ())
-  | WhileDoEnd (exp, stat) -> failwith "interp_stat WhileDoEnd"
-  | If (exp, s1, s2) -> failwith "interp_stat If"
+  let stat =
+    match stat with
+    | Nop -> ()
+    | Seq (s1, s2) ->
+      interp_stat env s1 (fun _ -> interp_stat env s2 (fun _ -> ()))
+    | Assign (Name name, exp) ->
+      interp_exp env exp (fun value -> Value.set_ident env name value (*|> k*))
+    | Assign (IndexTable (tbl, k), exp) ->
+      failwith "interp_stat Assign IndexTable"
+    | FunctionCall f -> interp_funcall env f (fun _ -> ())
+    | WhileDoEnd (exp, stat) -> failwith "interp_stat WhileDoEnd"
+    | If (exp, s1, s2) -> failwith "interp_stat If"
+  in
+  k stat
 
 and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
   let f, args = fc in
@@ -73,23 +77,63 @@ and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
       k value )
 
 and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
-  let value =
-    match e with
-    | Nil -> Value.Nil
-    | False -> Value.Bool false
-    | True -> Value.Bool true
-    | Integer n -> Value.Int n
-    | Float f -> Value.Float f
-    | LiteralString s -> Value.String s
-    | Var (Name name) -> Value.lookup_ident env name
-    | Var (IndexTable (tbl, k)) -> failwith "interp_exp Var IndexTable"
-    | FunctionCallE f -> failwith "interp_exp FunctionCallE"
-    | FunctionDef fun_body -> failwith "interp_exp FunctionDef"
-    | BinOp (op, e1, e2) -> failwith "interp_exp BinOp"
-    | UnOp (op, exp) -> failwith "interp_exp UnOp"
-    | Table items -> failwith "interp_exp Table"
-  in
-  k value
+  match e with
+  | Nil -> Value.Nil |> k
+  | False -> Value.Bool false |> k
+  | True -> Value.Bool true |> k
+  | Integer n -> Value.Int n |> k
+  | Float f -> Value.Float f |> k
+  | LiteralString s -> Value.String s |> k
+  | Var (Name name) -> Value.lookup_ident env name |> k
+  | Var (IndexTable (table, key)) ->
+    interp_exp env table (fun value_tbl ->
+        interp_exp env key (fun value_k ->
+            let table = Value.as_table value_tbl in
+            let key = Value.as_table_key value_k in
+            let value =
+              Hashtbl.find_opt table key |> Option.value ~default:Value.Nil
+            in
+            k value ) )
+  | FunctionCallE f -> interp_funcall env f (fun value -> k value)
+  | FunctionDef fun_body ->
+    let params, code = fun_body in
+    let f = Value.Closure (params, env, code) in
+    Value.Function f |> k
+  | BinOp (op, e1, e2) ->
+    interp_exp env e1 (fun v1 ->
+        match op with
+        | LogicalAnd ->
+          if Value.as_bool v1 then interp_exp env e2 (fun v2 -> k v2) else k v1
+        | LogicalOr ->
+          if Value.as_bool v1 then k v1 else interp_exp env e2 (fun v2 -> k v2)
+        | _ ->
+          interp_exp env e2 (fun v2 ->
+              let value =
+                match op with
+                (* arithmetic operators *)
+                | Addition -> Value.add v1 v2
+                | Subtraction -> Value.sub v1 v2
+                | Multiplication -> Value.mul v1 v2
+                (* relational operators *)
+                | Equality -> Value.Bool (Value.equal v1 v2)
+                | Inequality -> Value.Bool (Value.equal v1 v2 |> not)
+                | Less -> Value.Bool (Value.lt v1 v2)
+                | Greater -> Value.Bool (Value.le v1 v2 |> not)
+                | LessEq -> Value.Bool (Value.le v1 v2)
+                | GreaterEq -> Value.Bool (Value.lt v1 v2 |> not)
+                (* logical operators *)
+                | _ -> assert false
+              in
+              k value ) )
+  | UnOp (op, exp) ->
+    interp_exp env exp (fun value ->
+        let value' =
+          match op with
+          | UnaryMinus -> Value.neg value
+          | Not -> Value.Bool (Value.as_bool value |> not)
+        in
+        k value' )
+  | Table items -> failwith "interp_exp Table"
 
 let run ast =
   let coroutine : (Value.tkey, value) Hashtbl.t = Hashtbl.create 4 in
