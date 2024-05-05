@@ -24,107 +24,113 @@ let create_scope (names : string list) (values : value list) :
   loop names values;
   htbl
 
-let rec interp_block (env : env) (blk : block) (k : value -> unit) : unit =
+let rec interp_block (env : env) (co : coroutine) (blk : block)
+  (k : value -> unit) : unit =
   (* le padding avec Value.Nil est geré par create_scope *)
   let local_scope = create_scope blk.locals [] in
   let env = { env with locals = local_scope :: env.locals } in
 
-  interp_stat env blk.body (fun _ ->
-      interp_exp env blk.ret (fun value -> k value) )
+  interp_stat env co blk.body (fun _ ->
+      interp_exp env co blk.ret (fun value -> k value) )
 
-and interp_stat (env : env) (stat : stat) (k : unit -> unit) : unit =
+and interp_stat (env : env) (co : coroutine) (stat : stat) (k : unit -> unit) :
+  unit =
   let stat =
     match stat with
     | Nop -> ()
     | Seq (s1, s2) ->
-      interp_stat env s1 (fun _ -> interp_stat env s2 (fun _ -> ()))
+      interp_stat env co s1 (fun _ -> interp_stat env co s2 (fun _ -> ()))
     | Assign (Name name, exp) ->
-      interp_exp env exp (fun value -> Value.set_ident env name value)
+      interp_exp env co exp (fun value -> Value.set_ident env name value)
     | Assign (IndexTable (table, key), exp) ->
-      interp_exp env table (fun table_v ->
-          interp_exp env key (fun key_v ->
-              interp_exp env exp (fun value ->
+      interp_exp env co table (fun table_v ->
+          interp_exp env co key (fun key_v ->
+              interp_exp env co exp (fun value ->
                   let table = Value.as_table table_v in
                   let key = Value.as_table_key key_v in
                   Hashtbl.replace table key value ) ) )
-    | FunctionCall f -> interp_funcall env f (fun _ -> ())
-    | WhileDoEnd (exp, stat) -> while_do_end env exp stat
+    | FunctionCall f -> interp_funcall env co f (fun _ -> ())
+    | WhileDoEnd (exp, stat) -> while_do_end env co exp stat
     | If (exp, s1, s2) ->
-      interp_exp env exp (fun value ->
-          if Value.as_bool value then interp_stat env s1 (fun _ -> ())
-          else interp_stat env s2 (fun _ -> ()) )
+      interp_exp env co exp (fun value ->
+          if Value.as_bool value then interp_stat env co s1 (fun _ -> ())
+          else interp_stat env co s2 (fun _ -> ()) )
   in
   k stat
 
-and while_do_end env exp stat =
-  interp_exp env exp (fun value ->
+and while_do_end env co exp stat =
+  interp_exp env co exp (fun value ->
       if Value.as_bool value then
-        interp_stat env stat (fun _ -> while_do_end env exp stat) )
+        interp_stat env co stat (fun _ -> while_do_end env co exp stat) )
 
-and interp_funcall (env : env) (fc : functioncall) (k : value -> unit) : unit =
+and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
+  (k : value -> unit) : unit =
   let f, args = fc in
-  interp_exp env f (fun res ->
+  interp_exp env co f (fun res ->
       match Value.as_function res with
       | Closure (params, local_env, block) ->
-        let args_evaluated = eval_args env args in
+        let args_evaluated = eval_args env co args in
         let local_scope = create_scope params args_evaluated in
 
         let env = { local_env with locals = local_scope :: local_env.locals } in
-        interp_block env block (fun value -> k value)
+        interp_block env co block (fun value -> k value)
       | Print ->
-        print env args;
+        print env co args;
         k Value.Nil
       | CoroutCreate -> failwith "interp_funcall CoroutCreate"
       | CoroutResume -> failwith "interp_funcall CoroutResume"
       | CoroutYield -> failwith "interp_funcall CoroutYield"
       | CoroutStatus -> failwith "interp_funcall CoroutStatus" )
 
-and eval_args env args =
+and eval_args env co args =
   let res = ref [] in
   let rec loop l =
     match l with
     | [] -> ()
     | exp :: l' ->
-      interp_exp env exp (fun value ->
+      interp_exp env co exp (fun value ->
           res := value :: !res;
           loop l' )
   in
   loop args;
   List.rev !res
 
-and print env args =
+and print env co args =
   match args with
   | [] -> ()
   | [ exp ] ->
-    interp_exp env exp (fun value ->
+    interp_exp env co exp (fun value ->
         Printf.printf "%s\n" (value |> Value.to_string) )
   | exp :: args' ->
-    interp_exp env exp (fun value ->
+    interp_exp env co exp (fun value ->
         Printf.printf "%s\t" (value |> Value.to_string);
-        print env args' )
+        print env co args' )
 
-and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
+and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
+    =
   match e with
   (* expressions avec k interne *)
   | Var (IndexTable (table, key)) ->
-    interp_exp env table (fun value_tbl ->
-        interp_exp env key (fun value_k ->
+    interp_exp env co table (fun value_tbl ->
+        interp_exp env co key (fun value_k ->
             let table = Value.as_table value_tbl in
             let key = Value.as_table_key value_k in
             let value =
               Hashtbl.find_opt table key |> Option.value ~default:Value.Nil
             in
             k value ) )
-  | FunctionCallE f -> interp_funcall env f (fun value -> k value)
+  | FunctionCallE f -> interp_funcall env co f (fun value -> k value)
   | BinOp (op, e1, e2) ->
-    interp_exp env e1 (fun v1 ->
+    interp_exp env co e1 (fun v1 ->
         match op with
         | LogicalAnd ->
-          if Value.as_bool v1 then interp_exp env e2 (fun v2 -> k v2) else k v1
+          if Value.as_bool v1 then interp_exp env co e2 (fun v2 -> k v2)
+          else k v1
         | LogicalOr ->
-          if Value.as_bool v1 then k v1 else interp_exp env e2 (fun v2 -> k v2)
+          if Value.as_bool v1 then k v1
+          else interp_exp env co e2 (fun v2 -> k v2)
         | _ ->
-          interp_exp env e2 (fun v2 ->
+          interp_exp env co e2 (fun v2 ->
               let value =
                 match op with
                 (* arithmetic operators *)
@@ -143,7 +149,7 @@ and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
               in
               k value ) )
   | UnOp (op, exp) ->
-    interp_exp env exp (fun value ->
+    interp_exp env co exp (fun value ->
         let value' =
           match op with
           | UnaryMinus -> Value.neg value
@@ -167,22 +173,22 @@ and interp_exp (env : env) (e : exp) (k : value -> unit) : unit =
         Value.Function f
       | Table items ->
         let htbl = Hashtbl.create 16 in
-        add_items env htbl items;
+        add_items env co htbl items;
         Value.Table htbl
       | _ -> assert false
     in
     k value
   end
 
-and add_items env table items =
+and add_items env co table items =
   match items with
   | [] -> ()
   | (k, v) :: items' ->
-    interp_exp env k (fun key ->
-        interp_exp env v (fun value ->
+    interp_exp env co k (fun key ->
+        interp_exp env co v (fun value ->
             let key = Value.as_table_key key in
             Hashtbl.replace table key value;
-            add_items env table items' ) )
+            add_items env co table items' ) )
 
 let run ast =
   let coroutine : (Value.tkey, value) Hashtbl.t = Hashtbl.create 4 in
@@ -196,4 +202,8 @@ let run ast =
   Hashtbl.add globals "coroutine" (Table coroutine);
 
   let env = Value.{ globals; locals = [] } in
-  interp_block env ast (fun _ -> ())
+  let co =
+    Value.Coroutine Value.{ stat = Value.Running (fun _ -> ()) }
+    |> Value.as_coroutine
+  in
+  interp_block env co ast (fun _ -> ())
