@@ -66,23 +66,71 @@ and while_do_end env co exp stat =
 and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
   (k : value -> unit) : unit =
   let f, args = fc in
-  interp_exp env co f (fun res ->
-      match Value.as_function res with
+  interp_exp env co f (fun func ->
+      let func = Value.as_function func in
+      match func with
+      (* fonctions avec k interne *)
       | Closure (params, local_env, block) ->
+        (* la possible différence de longueur entre les
+           paramètres et les arguments est geré par create_scope *)
         let args_evaluated = eval_args env co args in
         let local_scope = create_scope params args_evaluated in
 
         let env = { local_env with locals = local_scope :: local_env.locals } in
         interp_block env co block (fun value -> k value)
-      | Print ->
-        print env co args;
-        k Value.Nil
-      | CoroutCreate -> failwith "interp_funcall CoroutCreate"
-      | CoroutResume -> failwith "interp_funcall CoroutResume"
-      | CoroutYield -> failwith "interp_funcall CoroutYield"
-      | CoroutStatus -> failwith "interp_funcall CoroutStatus" )
+      (* fonctions avec k externe *)
+      | _ -> begin
+        let value =
+          match func with
+          | Print ->
+            print env co args;
+            Value.Nil
+          | CoroutCreate ->
+            Printf.printf "Entre dans CoroutCreate\n%!";
+            let args_evaluated = eval_args env co args in
+            let f = List.hd args_evaluated in
+            let corout =
+              Value.Coroutine Value.{ stat = Value.Suspended (fun _ -> k f) }
+            in
+            corout
+          | CoroutResume ->
+            Printf.printf "Entre dans CoroutResume\n%!";
+            let () =
+              let f =
+                match co.stat with
+                | Dead -> failwith "The current coroutine is dead"
+                | Running f -> f
+                | Suspended f ->
+                  co.stat <- Running f;
+                  f
+              in
+              f (Value.Coroutine co)
+            in
+            Value.Coroutine co
+          | CoroutYield ->
+            Printf.printf "Entre dans CoroutYield\n%!";
+            let () =
+              match co.stat with
+              | Dead -> failwith "The current coroutine is dead"
+              | Running f -> co.stat <- Suspended f
+              | Suspended _ -> ()
+            in
+            Value.Coroutine co
+          | CoroutStatus ->
+            Printf.printf "Entre dans CoroutStatus\n%!";
+            let str =
+              match co.stat with
+              | Dead -> "dead"
+              | Suspended _ -> "suspended"
+              | Running _ -> "running"
+            in
+            Value.String str
+          | _ -> assert false
+        in
+        k value
+      end )
 
-and eval_args env co args =
+and eval_args (env : env) (co : coroutine) (args : args) : value list =
   let res = ref [] in
   let rec loop l =
     match l with
@@ -95,7 +143,7 @@ and eval_args env co args =
   loop args;
   List.rev !res
 
-and print env co args =
+and print (env : env) (co : coroutine) (args : args) : unit =
   match args with
   | [] -> ()
   | [ exp ] ->
@@ -180,7 +228,8 @@ and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     k value
   end
 
-and add_items env co table items =
+and add_items (env : env) (co : coroutine)
+  (table : (Value.tkey, value) Hashtbl.t) (items : (exp * exp) list) : unit =
   match items with
   | [] -> ()
   | (k, v) :: items' ->
