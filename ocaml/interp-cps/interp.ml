@@ -69,7 +69,6 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
   interp_exp env co f (fun func ->
       let func = Value.as_function func in
       match func with
-      (* fonctions avec k interne *)
       | Closure (params, local_env, block) ->
         (* la possible différence de longueur entre les
            paramètres et les arguments est geré par create_scope *)
@@ -77,57 +76,72 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
         let local_scope = create_scope params args_evaluated in
 
         let env = { local_env with locals = local_scope :: local_env.locals } in
-        interp_block env co block (fun value -> k value)
-      (* fonctions avec k externe *)
-      | _ -> begin
-        let value =
-          match func with
-          | Print ->
-            print env co args;
-            Value.Nil
-          | CoroutCreate ->
-            Printf.printf "Entre dans CoroutCreate\n%!";
-            let args_evaluated = eval_args env co args in
-            let f = List.hd args_evaluated in
-            let corout =
-              Value.Coroutine Value.{ stat = Value.Suspended (fun _ -> k f) }
-            in
-            corout
-          | CoroutResume ->
-            Printf.printf "Entre dans CoroutResume\n%!";
-            let () =
-              let f =
-                match co.stat with
-                | Dead -> failwith "The current coroutine is dead"
-                | Running f -> f
-                | Suspended f ->
-                  co.stat <- Running f;
-                  f
-              in
-              f (Value.Coroutine co)
-            in
-            Value.Coroutine co
-          | CoroutYield ->
-            Printf.printf "Entre dans CoroutYield\n%!";
-            let () =
-              match co.stat with
-              | Dead -> failwith "The current coroutine is dead"
-              | Running f -> co.stat <- Suspended f
-              | Suspended _ -> ()
-            in
-            Value.Coroutine co
-          | CoroutStatus ->
-            Printf.printf "Entre dans CoroutStatus\n%!";
-            let str =
-              match co.stat with
-              | Dead -> "dead"
-              | Suspended _ -> "suspended"
-              | Running _ -> "running"
-            in
-            Value.String str
-          | _ -> assert false
+        interp_block env co block k
+      | Print ->
+        print env co args;
+        k Value.Nil
+      | CoroutCreate -> begin
+        (* Affichage pour le débogage *)
+        Printf.printf "Entre dans CoroutCreate\n%!";
+
+        let f = eval_args env co args |> List.hd |> Value.as_function in
+        match f with
+        | Closure (params, local_env, block) ->
+          let args_evaluated = eval_args env co args in
+          let local_scope = create_scope params args_evaluated in
+          let env =
+            { local_env with locals = local_scope :: local_env.locals }
+          in
+          let coroutine =
+            Value.Coroutine
+              { stat =
+                  Value.Suspended
+                    (fun co -> interp_block env (Value.as_coroutine co) block k)
+              }
+          in
+          k coroutine
+        | _ -> assert false
+      end
+      | CoroutResume -> begin
+        (* Affichage pour le débogage *)
+        Printf.printf "Entre dans CoroutResume\n%!";
+
+        let corout = eval_args env co args |> List.hd |> Value.as_coroutine in
+        let k' =
+          match corout.stat with
+          | Dead -> failwith "The coroutine is dead"
+          | Running k' -> k'
+          | Suspended k' ->
+            corout.stat <- Running k;
+            k'
         in
-        k value
+        Value.Coroutine corout |> k'
+      end
+      | CoroutYield -> begin
+        (* Affichage pour le débogage *)
+        Printf.printf "Entre dans CoroutYield\n%!";
+
+        let k' =
+          match co.stat with
+          | Dead -> failwith "The coroutine is dead"
+          | Running k' ->
+            co.stat <- Suspended k;
+            k'
+          | Suspended k' -> k'
+        in
+        Value.Coroutine co |> k'
+      end
+      | CoroutStatus -> begin
+        (* Affichage pour le débogage *)
+        Printf.printf "Entre dans CoroutStatus\n%!";
+
+        let str =
+          match co.stat with
+          | Dead -> "dead"
+          | Suspended _ -> "suspended"
+          | Running _ -> "running"
+        in
+        Value.String str |> k
       end )
 
 and eval_args (env : env) (co : coroutine) (args : args) : value list =
