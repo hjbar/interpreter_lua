@@ -35,7 +35,6 @@ let rec interp_block (env : env) (co : coroutine) (blk : block)
   (* le padding avec Value.Nil est geré par create_scope *)
   let local_scope = create_scope blk.locals [] in
   let env = { env with locals = local_scope :: env.locals } in
-
   interp_stat env co blk.body (fun () -> interp_exp env co blk.ret k)
 
 and interp_stat (env : env) (co : coroutine) (stat : stat) (k : unit -> unit) :
@@ -62,7 +61,8 @@ and interp_stat (env : env) (co : coroutine) (stat : stat) (k : unit -> unit) :
     if Value.as_bool value then interp_stat env co s1 k
     else interp_stat env co s2 k
 
-and while_do_end env co exp stat k =
+and while_do_end (env : env) (co : coroutine) (exp : exp) (stat : stat)
+  (k : unit -> unit) : unit =
   interp_exp env co exp @@ fun value ->
   if Value.as_bool value then
     interp_stat env co stat (fun () -> while_do_end env co exp stat k)
@@ -91,28 +91,28 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
 
         interp_block env corout block @@ fun value ->
         match corout.stat with
-        | Dead -> failwith "The current coroutine is already dead"
+        | Dead -> failwith "coroutine already dead"
         | Running k' ->
           corout.stat <- Dead;
           k' value
-        | Suspended _ -> assert false
+        | Suspended _ -> failwith "coroutine is suspended instead of running"
       in
 
       corout.stat <- Suspended corout_k;
       k @@ Coroutine corout
-    | _ -> failwith "The argument given to coroutine.create is not a function"
+    | _ -> failwith "argument given to coroutine.create is not a function"
   end
   | CoroutResume -> begin
     let corout, arg =
       match eval_args env co args with
       | [ corout ] -> (Value.as_coroutine corout, Value.Nil)
       | [ corout; arg ] -> (Value.as_coroutine corout, arg)
-      | _ -> failwith "There is too many arguments in coroutine.mini_resume"
+      | _ -> failwith "too many arguments given to coroutine.mini_resume"
     in
 
     match corout.stat with
-    | Dead -> failwith "The coroutine is dead"
-    | Running _ -> ()
+    | Dead -> failwith "coroutine already dead"
+    | Running _ -> failwith "coroutine is running instead of suspended"
     | Suspended k' ->
       corout.stat <- Running k;
       k' arg
@@ -122,15 +122,15 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
       match eval_args env co args with
       | [] -> Value.Nil
       | [ arg ] -> arg
-      | _ -> failwith "There is too many arguments in coroutine.yield"
+      | _ -> failwith "too many arguments given to coroutine.yield"
     in
 
     match co.stat with
-    | Dead -> failwith "The coroutine is dead"
+    | Dead -> failwith "coroutine already dead"
     | Running k' ->
       co.stat <- Suspended k;
       k' arg
-    | Suspended _ -> ()
+    | Suspended _ -> failwith "coroutine is suspended instead of running"
   end
   | CoroutStatus -> begin
     let corout = eval_args env co args |> List.hd |> Value.as_coroutine in
@@ -141,7 +141,8 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
       | Running _ -> "running"
       | Suspended _ -> "suspended"
     in
-    Value.String str |> k
+
+    k @@ Value.String str
   end
 
 and create_fun_env (env : env) (local_env : env) (co : coroutine) (args : args)
@@ -166,17 +167,23 @@ and print (env : env) (co : coroutine) (args : args) : unit =
   match args with
   | [] -> ()
   | [ exp ] ->
-    interp_exp env co exp (fun value ->
-        Printf.printf "%s\n" (value |> Value.to_string) )
+    interp_exp env co exp @@ fun value ->
+    Printf.printf "%s\n" (Value.to_string value)
   | exp :: args' ->
-    interp_exp env co exp (fun value ->
-        Printf.printf "%s\t" (value |> Value.to_string) );
+    interp_exp env co exp @@ fun value ->
+    Printf.printf "%s\t" (Value.to_string value);
     print env co args'
 
 and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     =
   match e with
-  (* expressions avec k interne *)
+  | Nil -> k Value.Nil
+  | False -> k @@ Value.Bool false
+  | True -> k @@ Value.Bool true
+  | Integer n -> k @@ Value.Int n
+  | Float f -> k @@ Value.Float f
+  | LiteralString s -> k @@ Value.String s
+  | Var (Name name) -> k @@ Value.lookup_ident env name
   | Var (IndexTable (table, key)) ->
     interp_exp env co table @@ fun value_tbl ->
     interp_exp env co key @@ fun value_k ->
@@ -185,11 +192,17 @@ and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     let value = Hashtbl.find_opt table key |> Option.value ~default:Value.Nil in
     k value
   | FunctionCallE f -> interp_funcall env co f k
+  | FunctionDef fun_body ->
+    let params, code = fun_body in
+    let f = Value.Closure (params, env, code) in
+    k @@ Value.Function f
   | BinOp (op, e1, e2) -> begin
     interp_exp env co e1 @@ fun v1 ->
     match op with
+    (* logical operators *)
     | LogicalAnd -> if Value.as_bool v1 then interp_exp env co e2 k else k v1
     | LogicalOr -> if Value.as_bool v1 then k v1 else interp_exp env co e2 k
+    (* other operators *)
     | _ ->
       interp_exp env co e2 @@ fun v2 ->
       let value =
@@ -200,11 +213,11 @@ and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
         | Multiplication -> Value.mul v1 v2
         (* relational operators *)
         | Equality -> Value.Bool (Value.equal v1 v2)
-        | Inequality -> Value.Bool (Value.equal v1 v2 |> not)
+        | Inequality -> Value.Bool (not @@ Value.equal v1 v2)
         | Less -> Value.Bool (Value.lt v1 v2)
-        | Greater -> Value.Bool (Value.le v1 v2 |> not)
+        | Greater -> Value.Bool (not @@ Value.le v1 v2)
         | LessEq -> Value.Bool (Value.le v1 v2)
-        | GreaterEq -> Value.Bool (Value.lt v1 v2 |> not)
+        | GreaterEq -> Value.Bool (not @@ Value.lt v1 v2)
         (* logical operators *)
         | _ -> assert false
       in
@@ -219,29 +232,10 @@ and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     in
     k value'
   end
-  (* expressions avec k externe *)
-  | _ -> begin
-    let value =
-      match e with
-      | Nil -> Value.Nil
-      | False -> Value.Bool false
-      | True -> Value.Bool true
-      | Integer n -> Value.Int n
-      | Float f -> Value.Float f
-      | LiteralString s -> Value.String s
-      | Var (Name name) -> Value.lookup_ident env name
-      | FunctionDef fun_body ->
-        let params, code = fun_body in
-        let f = Value.Closure (params, env, code) in
-        Value.Function f
-      | Table items ->
-        let htbl = Hashtbl.create 16 in
-        add_items env co htbl items;
-        Value.Table htbl
-      | _ -> assert false
-    in
-    k value
-  end
+  | Table items ->
+    let htbl = Hashtbl.create 16 in
+    add_items env co htbl items;
+    k @@ Value.Table htbl
 
 and add_items (env : env) (co : coroutine)
   (table : (Value.tkey, value) Hashtbl.t) (items : (exp * exp) list) : unit =
