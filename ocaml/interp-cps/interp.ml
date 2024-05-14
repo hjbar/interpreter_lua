@@ -55,30 +55,58 @@ and interp_stat (env : env) (co : coroutine) (stat : stat) (k : unit -> unit) :
     Hashtbl.replace table key value;
     k ()
   | FunctionCall f -> interp_funcall env co f (fun _ -> k ())
-  | WhileDoEnd (exp, stat) -> while_do_end env co exp stat k
+  | WhileDoEnd (exp, stat) ->
+    let rec loop () =
+      interp_exp env co exp @@ fun value ->
+      if Value.as_bool value then interp_stat env co stat (fun () -> loop ())
+      else k ()
+    in
+    loop ()
   | If (exp, s1, s2) ->
     interp_exp env co exp @@ fun value ->
     if Value.as_bool value then interp_stat env co s1 k
     else interp_stat env co s2 k
 
-and while_do_end (env : env) (co : coroutine) (exp : exp) (stat : stat)
-  (k : unit -> unit) : unit =
-  interp_exp env co exp @@ fun value ->
-  if Value.as_bool value then
-    interp_stat env co stat (fun () -> while_do_end env co exp stat k)
-  else k ()
-
 and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
   (k : value -> unit) : unit =
+  let eval_args env co args =
+    let res = ref [] in
+    let rec loop l acc =
+      match l with
+      | [] -> res := List.rev acc
+      | exp :: l' -> interp_exp env co exp @@ fun value -> loop l' (value :: acc)
+    in
+    loop args [];
+    !res
+  in
+
   let f, args = fc in
   interp_exp env co f @@ fun func ->
   match Value.as_function func with
-  | Closure (params, local_env, block) ->
-    let env = create_fun_env env local_env co args params in
+  | Closure (params, local_env, block) -> begin
+    (* la possible différence de longueur entre les
+       paramètres et les arguments est geré par create_scope *)
+    let args_evaluated = eval_args env co args in
+    let local_scope = create_scope params args_evaluated in
+    let env = { local_env with locals = local_scope :: local_env.locals } in
     interp_block env co block k
-  | Print ->
-    print env co args;
+  end
+  | Print -> begin
+    let rec loop args =
+      match args with
+      | [] -> ()
+      | [ exp ] ->
+        interp_exp env co exp @@ fun value ->
+        Printf.printf "%s\n" (Value.to_string value)
+      | exp :: args' ->
+        interp_exp env co exp @@ fun value ->
+        Printf.printf "%s\t" (Value.to_string value);
+        loop args'
+    in
+
+    loop args;
     k Value.Nil
+  end
   | CoroutCreate -> begin
     let f = eval_args env co args |> List.hd |> Value.as_function in
     match f with
@@ -86,6 +114,8 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
       let corout = Value.{ stat = Dead } in
 
       let corout_k arg =
+        (* la possible différence de longueur entre les
+           paramètres et les arguments est geré par create_scope *)
         let local_scope = create_scope params [ arg ] in
         let env = { local_env with locals = local_scope :: local_env.locals } in
 
@@ -145,35 +175,6 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
     k @@ Value.String str
   end
 
-and create_fun_env (env : env) (local_env : env) (co : coroutine) (args : args)
-  (params : name list) : env =
-  (* la possible différence de longueur entre les
-     paramètres et les arguments est geré par create_scope *)
-  let args_evaluated = eval_args env co args in
-  let local_scope = create_scope params args_evaluated in
-  { local_env with locals = local_scope :: local_env.locals }
-
-and eval_args (env : env) (co : coroutine) (args : args) : value list =
-  let res = ref [] in
-  let rec loop l acc =
-    match l with
-    | [] -> res := List.rev acc
-    | exp :: l' -> interp_exp env co exp @@ fun value -> loop l' (value :: acc)
-  in
-  loop args [];
-  !res
-
-and print (env : env) (co : coroutine) (args : args) : unit =
-  match args with
-  | [] -> ()
-  | [ exp ] ->
-    interp_exp env co exp @@ fun value ->
-    Printf.printf "%s\n" (Value.to_string value)
-  | exp :: args' ->
-    interp_exp env co exp @@ fun value ->
-    Printf.printf "%s\t" (Value.to_string value);
-    print env co args'
-
 and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     =
   match e with
@@ -232,21 +233,23 @@ and interp_exp (env : env) (co : coroutine) (e : exp) (k : value -> unit) : unit
     in
     k value'
   end
-  | Table items ->
-    let htbl = Hashtbl.create 16 in
-    add_items env co htbl items;
-    k @@ Value.Table htbl
+  | Table items -> begin
+    let table = Hashtbl.create 16 in
 
-and add_items (env : env) (co : coroutine)
-  (table : (Value.tkey, value) Hashtbl.t) (items : (exp * exp) list) : unit =
-  match items with
-  | [] -> ()
-  | (k, v) :: items' ->
-    interp_exp env co k @@ fun key ->
-    interp_exp env co v @@ fun value ->
-    let key = Value.as_table_key key in
-    Hashtbl.replace table key value;
-    add_items env co table items'
+    let rec loop items =
+      match items with
+      | [] -> ()
+      | (k, v) :: items' ->
+        interp_exp env co k @@ fun key ->
+        interp_exp env co v @@ fun value ->
+        let key = Value.as_table_key key in
+        Hashtbl.replace table key value;
+        loop items'
+    in
+
+    loop items;
+    k @@ Value.Table table
+  end
 
 let run ast =
   let coroutine : (Value.tkey, value) Hashtbl.t = Hashtbl.create 4 in
