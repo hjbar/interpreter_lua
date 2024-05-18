@@ -143,6 +143,8 @@ impl Exp_ {
             Exp_::BinOp(binop, e1, e2) => {
                 let v1 = e1.interp(env);
 
+                /* logical operators */
+
                 if let BinOp::LogicalAnd = binop {
                     return if v1.as_bool() { e2.interp(env) } else { v1 };
                 }
@@ -150,6 +152,8 @@ impl Exp_ {
                 if let BinOp::LogicalOr = binop {
                     return if v1.as_bool() { v1 } else { e2.interp(env) };
                 }
+
+                /* others operators */
 
                 let v2 = e2.interp(env);
 
@@ -196,11 +200,14 @@ impl Exp_ {
 // Point d'entrée principal de l'interpréteur
 pub fn run(ast: &Block) {
     let mut globals = GEnv(HashMap::new());
+
     let printid = "print".to_owned();
     globals.0.insert(&printid, Value::Function(Function::Print));
+
     let mut env = Env {
         locals: Rc::new(LEnv::Nil),
         globals: &mut globals,
     };
+
     ast.interp(&mut env);
 }

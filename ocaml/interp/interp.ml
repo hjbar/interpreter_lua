@@ -65,12 +65,6 @@ and interp_stat (env : env) (stat : stat) : unit =
 and interp_funcall (env : env) (fc : functioncall) : value =
   let f, args = fc in
   match interp_exp env f |> Value.as_function with
-  | Print ->
-    let () =
-      List.map (fun exp -> interp_exp env exp |> Value.to_string) args
-      |> String.concat "\t" |> Format.printf "%s\n"
-    in
-    Value.Nil
   | Closure (params, local_env, block) ->
     (* la possible différence de longueur entre les
        paramètres et les arguments est geré par create_scope *)
@@ -78,6 +72,12 @@ and interp_funcall (env : env) (fc : functioncall) : value =
     let local_scope = create_scope params args_evaluated in
     let env = { local_env with locals = local_scope :: local_env.locals } in
     interp_block env block
+  | Print ->
+    let () =
+      List.map (fun exp -> interp_exp env exp |> Value.to_string) args
+      |> String.concat "\t" |> Format.printf "%s\n"
+    in
+    Value.Nil
 
 (* Interprète une expression *)
 and interp_exp (env : env) (e : exp) : value =
@@ -101,8 +101,10 @@ and interp_exp (env : env) (e : exp) : value =
   | BinOp (op, e1, e2) -> begin
     let v1 = interp_exp env e1 in
     match op with
+    (* logical operators *)
     | LogicalAnd -> if Value.as_bool v1 then interp_exp env e2 else v1
     | LogicalOr -> if Value.as_bool v1 then v1 else interp_exp env e2
+    (* others operators *)
     | _ -> begin
       let v2 = interp_exp env e2 in
       match op with
@@ -112,11 +114,11 @@ and interp_exp (env : env) (e : exp) : value =
       | Multiplication -> Value.mul v1 v2
       (* relational operators *)
       | Equality -> Value.Bool (Value.equal v1 v2)
-      | Inequality -> Value.Bool (Value.equal v1 v2 |> not)
+      | Inequality -> Value.Bool (not @@ Value.equal v1 v2)
       | Less -> Value.Bool (Value.lt v1 v2)
-      | Greater -> Value.Bool (Value.le v1 v2 |> not)
+      | Greater -> Value.Bool (not @@ Value.le v1 v2)
       | LessEq -> Value.Bool (Value.le v1 v2)
-      | GreaterEq -> Value.Bool (Value.lt v1 v2 |> not)
+      | GreaterEq -> Value.Bool (not @@ Value.lt v1 v2)
       (* logical operators *)
       | _ -> assert false
     end
@@ -125,7 +127,7 @@ and interp_exp (env : env) (e : exp) : value =
     let value = interp_exp env exp in
     match op with
     | UnaryMinus -> Value.neg value
-    | Not -> Value.Bool (Value.as_bool value |> not)
+    | Not -> Value.Bool (not @@ Value.as_bool value)
   end
   | Table items ->
     let htbl = Hashtbl.create 16 in
@@ -142,5 +144,7 @@ and interp_exp (env : env) (e : exp) : value =
 let run ast =
   let globals = Hashtbl.create 47 in
   Hashtbl.add globals "print" (Value.Function Print);
+
   let env = Value.{ globals; locals = [] } in
-  ignore (interp_block env ast)
+
+  interp_block env ast |> ignore

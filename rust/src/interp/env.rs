@@ -107,10 +107,10 @@ impl<'ast, 'genv> Env<'ast, 'genv> {
                 if res.is_none() {
                     Value::Nil
                 } else {
-                    (*res.unwrap()).clone()
+                    (res.unwrap()).clone()
                 }
             }
-            Some(res) => (*res.borrow()).clone(),
+            Some(res) => (res.borrow()).clone(),
         }
     }
 
