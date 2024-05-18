@@ -74,8 +74,8 @@ and interp_funcall (env : env) (fc : functioncall) : value =
     interp_block env block
   | Print ->
     let () =
-      List.map (fun exp -> interp_exp env exp |> Value.to_string) args
-      |> String.concat "\t" |> Format.printf "%s\n"
+      List.map (interp_exp env) args
+      |> List.map Value.to_string |> String.concat "\t" |> Format.printf "%s\n"
     in
     Value.Nil
 
