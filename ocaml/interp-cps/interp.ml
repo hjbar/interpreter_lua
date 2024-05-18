@@ -92,18 +92,10 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
     interp_block env co block k
   end
   | Print -> begin
-    let rec loop args acc =
-      match args with
-      | [] -> Format.print_newline ()
-      | [ exp ] ->
-        interp_exp env co exp @@ fun value ->
-        Format.printf "%s%s\n" acc (Value.to_string value)
-      | exp :: args' ->
-        interp_exp env co exp @@ fun value ->
-        let acc' = Format.sprintf "%s%s\t" acc (Value.to_string value) in
-        loop args' acc'
+    let () =
+      eval_args env co args |> List.map Value.to_string |> String.concat "\t"
+      |> Format.printf "%s\n"
     in
-    loop args "";
     k Value.Nil
   end
   | CoroutCreate -> begin
