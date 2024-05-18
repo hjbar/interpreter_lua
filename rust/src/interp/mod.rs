@@ -75,6 +75,11 @@ impl FunctionCall {
     fn interp<'ast, 'genv>(&'ast self, env: &mut Env<'ast, 'genv>) -> Value<'ast> {
         match self.0.interp(env).as_function() {
             Function::Print => {
+                if self.1.len() == 0 {
+                    print!("\n");
+                    return Value::Nil;
+                }
+
                 let last_index = self.1.len() - 1;
 
                 for i in 0..last_index {

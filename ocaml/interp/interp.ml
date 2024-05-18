@@ -6,6 +6,7 @@ type env = Value.env
 
 (* Fonction auxiliaire pour créer une table d'environnement à partir de noms et
    valeurs associées. *)
+
 let create_scope (names : string list) (values : value list) :
   (name, value) Hashtbl.t =
   let htbl = Hashtbl.create 16 in
@@ -67,7 +68,7 @@ and interp_funcall (env : env) (fc : functioncall) : value =
   | Print ->
     let () =
       List.map (fun exp -> interp_exp env exp |> Value.to_string) args
-      |> String.concat "\t" |> Printf.printf "%s\n"
+      |> String.concat "\t" |> Format.printf "%s\n"
     in
     Value.Nil
   | Closure (params, local_env, block) ->
@@ -75,7 +76,6 @@ and interp_funcall (env : env) (fc : functioncall) : value =
        paramètres et les arguments est geré par create_scope *)
     let args_evaluated = List.map (interp_exp env) args in
     let local_scope = create_scope params args_evaluated in
-
     let env = { local_env with locals = local_scope :: local_env.locals } in
     interp_block env block
 
