@@ -69,15 +69,14 @@ and interp_stat (env : env) (co : coroutine) (stat : stat) (k : unit -> unit) :
 
 and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
   (k : value -> unit) : unit =
-  let eval_args env co args =
-    let res = ref [] in
-    let rec loop l acc =
-      match l with
-      | [] -> res := List.rev acc
-      | exp :: l' -> interp_exp env co exp @@ fun value -> loop l' (value :: acc)
+  let eval_args env co args k =
+    let rec loop args acc k =
+      match args with
+      | [] -> k @@ List.rev acc
+      | exp :: args' ->
+        interp_exp env co exp @@ fun value -> loop args' (value :: acc) k
     in
-    loop args [];
-    !res
+    loop args [] k
   in
 
   let f, args = fc in
@@ -86,20 +85,22 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
   | Closure (params, local_env, block) -> begin
     (* la possible différence de longueur entre les
        paramètres et les arguments est geré par create_scope *)
-    let args_evaluated = eval_args env co args in
+    eval_args env co args @@ fun args_evaluated ->
     let local_scope = create_scope params args_evaluated in
     let env = { local_env with locals = local_scope :: local_env.locals } in
     interp_block env co block k
   end
   | Print -> begin
+    eval_args env co args @@ fun args_evaluated ->
     let () =
-      eval_args env co args |> List.map Value.to_string |> String.concat "\t"
-      |> Format.printf "%s\n"
+      List.map Value.to_string args_evaluated
+      |> String.concat "\t" |> Format.printf "%s\n"
     in
     k Value.Nil
   end
   | CoroutCreate -> begin
-    let f = eval_args env co args |> List.hd |> Value.as_function in
+    eval_args env co args @@ fun args_evaluated ->
+    let f = List.hd args_evaluated |> Value.as_function in
     match f with
     | Closure (params, local_env, block) ->
       let corout = Value.{ stat = Dead } in
@@ -124,8 +125,9 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
     | _ -> failwith "argument given to coroutine.create is not a function"
   end
   | CoroutResume -> begin
+    eval_args env co args @@ fun args_evaluated ->
     let corout, arg =
-      match eval_args env co args with
+      match args_evaluated with
       | [ corout ] -> (Value.as_coroutine corout, Value.Nil)
       | [ corout; arg ] -> (Value.as_coroutine corout, arg)
       | _ -> failwith "too many arguments given to coroutine.mini_resume"
@@ -139,8 +141,9 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
       k' arg
   end
   | CoroutYield -> begin
+    eval_args env co args @@ fun args_evaluated ->
     let arg =
-      match eval_args env co args with
+      match args_evaluated with
       | [] -> Value.Nil
       | [ arg ] -> arg
       | _ -> failwith "too many arguments given to coroutine.yield"
@@ -154,7 +157,8 @@ and interp_funcall (env : env) (co : coroutine) (fc : functioncall)
     | Suspended _ -> failwith "coroutine is suspended instead of running"
   end
   | CoroutStatus -> begin
-    let corout = eval_args env co args |> List.hd |> Value.as_coroutine in
+    eval_args env co args @@ fun args_evaluated ->
+    let corout = List.hd args_evaluated |> Value.as_coroutine in
 
     let str =
       match corout.stat with
